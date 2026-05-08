@@ -52,16 +52,16 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 
 	sheetName := config.TargetSheet
 
-	sheetIndex, err := f.GetSheetIndex(sheetName)//指定したシートが存在するかどうか
+	sheetIndex, err := f.GetSheetIndex(sheetName) //指定したシートが存在するかどうか
 	if err != nil {
 		return nil, fmt.Errorf("シート %q の確認に失敗しました: %w", sheetName, err)
 	}
 
-	if sheetIndex == -1 {
+	if sheetIndex == -1 { //シートが見つからない場合は-1が返るライブラリの仕様
 		return nil, fmt.Errorf("シート %q が見つかりませんでした", sheetName)
 	}
 
-	rows, err := f.GetRows(sheetName)
+	rows, err := f.GetRows(sheetName) // 行数確認の為
 	if err != nil {
 		return nil, fmt.Errorf("シートの読み込みに失敗しました: %w", err)
 	}
@@ -75,7 +75,6 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 
 	var currentYear int
 	var currentMonth int
-	var currentDate *time.Time
 
 	for rowIndex := config.DataStartRow; rowIndex <= len(rows); rowIndex++ {
 		dateText, err := getCellValue(f, sheetName, config.DateColumn, rowIndex)
@@ -83,26 +82,20 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 			return nil, err
 		}
 
-		dateText = strings.TrimSpace(dateText)
-
-		if dateText != "" {
-			year, month, err := extractYearMonth(dateText)
-			if err == nil {
-				currentYear = year
-				currentMonth = month
-				currentDate = nil
-				continue
-			}
+		dateText = strings.TrimSpace(dateText) // 前後の空白を削除
+		if dateText == "" {
+			continue
 		}
 
-		if dateText != "" {
-			date, ok := parseDateText(dateText, currentYear, currentMonth)
-			if ok {
-				currentDate = &date
-			}
+		year, month, err := extractYearMonth(dateText)
+		if err == nil {
+			currentYear = year
+			currentMonth = month
+			continue
 		}
 
-		if currentDate == nil {
+		date, ok := parseDateText(dateText, currentYear, currentMonth)
+		if !ok {
 			continue
 		}
 
@@ -112,7 +105,7 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 				continue
 			}
 
-			shift, ok, err := readShiftFromBlock(f, sheetName, rowIndex, block, staffName, *currentDate)
+			shift, ok, err := readShiftFromBlock(f, sheetName, rowIndex, block, staffName, date)
 			if err != nil {
 				return nil, err
 			}
@@ -135,7 +128,7 @@ func readStaffNames(f *excelize.File, sheetName string, config SourceConfig) ([]
 			return nil, err
 		}
 
-		staffNames[i] = strings.TrimSpace(name)
+		staffNames[i] = strings.TrimSpace(name) // 前後の空白を削除して保存
 	}
 
 	return staffNames, nil
@@ -217,7 +210,7 @@ func readShiftFromBlock(
 }
 
 func getCellValue(f *excelize.File, sheetName string, col string, row int) (string, error) {
-	cell, err := excelize.JoinCellName(col, row)
+	cell, err := excelize.JoinCellName(col, row) // 例）AA 10 -> AA10
 	if err != nil {
 		return "", err
 	}
@@ -268,9 +261,9 @@ func parseDateText(text string, currentYear int, currentMonth int) (time.Time, b
 }
 
 func extractYearMonth(text string) (int, int, error) {
-	text = normalizeNumber(text)
+	text = normalizeNumber(text)//全角数字を半角に変換
 
-	re := regexp.MustCompile(`([0-9]{4})\s*年\s*([0-9]{1,2})\s*月`)
+	re := regexp.MustCompile(`([0-9]{4})\s*年\s*([0-9]{1,2})\s*月`)//正規表現して*regexp.Regexp を返す
 	matches := re.FindStringSubmatch(text)
 
 	if len(matches) < 3 {

@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
+	if len(os.Args) < 2 { //　引数が設定されているのかの確認　文字列の数で判断
 		fmt.Println("使い方:")
 		fmt.Println("  go run ./cmd/shift-notifier ./testdata/shift.xlsx")
 		os.Exit(1)
@@ -24,7 +24,7 @@ func main() {
 
 	fmt.Printf("読み込んだシフト数: %d件\n\n", len(shifts))
 
-	for _, shift := range shifts {
+	for _, shift := range shifts { //indexは使わないので_で無視
 		fmt.Printf(
 			"講師: %s / 時間: %s〜%s / 場所: %s\n",
 			shift.StaffName,
