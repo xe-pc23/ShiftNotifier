@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
 	"github.com/xe-pc23/shift-notifier/internal/parser"
+	"github.com/xe-pc23/shift-notifier/internal/scheduler"
 )
 
 func main() {
@@ -23,10 +25,16 @@ func main() {
 	}
 
 	fmt.Printf("読み込んだシフト数: %d件\n\n", len(shifts))
+	now := time.Now()
 
-	for _, shift := range shifts { //indexは使わないので_で無視
+	targets := scheduler.FindNotifyTargets(shifts, now, time.Hour)
+
+	fmt.Printf("現在時刻: %s\n", now.Format("2006/01/02 15:04"))
+	fmt.Printf("通知対象のシフト数: %d件\n\n", len(targets))
+
+	for _, shift := range targets { //indexは使わないので_で無視
 		fmt.Printf(
-			"講師: %s / 時間: %s〜%s / 場所: %s\n",
+			"通知対象: 講師: %s / 時間: %s〜%s / 場所: %s\n",
 			shift.StaffName,
 			shift.StartTime.Format("2006/01/02 15:04"),
 			shift.EndTime.Format("15:04"),
