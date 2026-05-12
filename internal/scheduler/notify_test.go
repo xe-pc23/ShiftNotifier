@@ -104,3 +104,70 @@ func TestFindNotifyTargets(t *testing.T) {
 		t.Fatalf("targets[0].StaffName = %q, want %q", targets[0].StaffName, "通知対象")
 	}
 }
+
+func TestPlanShiftNotifications(t *testing.T) {
+	now := time.Date(2026, 5, 8, 17, 0, 0, 0, time.Local)
+	shift := model.Shift{
+		StaffName: "通知対象",
+		StartTime: time.Date(2026, 5, 8, 18, 0, 0, 0, time.Local),
+		EndTime:   time.Date(2026, 5, 8, 20, 0, 0, 0, time.Local),
+		Location:  "A教室",
+	}
+
+	notifications := PlanShiftNotifications([]model.Shift{shift}, now, time.Hour, nil)
+
+	if len(notifications) != 1 {
+		t.Fatalf("len(notifications) = %d, want 1", len(notifications))
+	}
+
+	notification := notifications[0]
+	if notification.ID == "" {
+		t.Fatal("notification.ID is empty")
+	}
+
+	if notification.NotificationType != model.NotificationTypeOneHourBefore {
+		t.Fatalf("NotificationType = %q, want %q", notification.NotificationType, model.NotificationTypeOneHourBefore)
+	}
+
+	if notification.Status != model.NotificationStatusPending {
+		t.Fatalf("Status = %q, want %q", notification.Status, model.NotificationStatusPending)
+	}
+
+	wantScheduledFor := time.Date(2026, 5, 8, 17, 0, 0, 0, time.Local)
+	if !notification.ScheduledFor.Equal(wantScheduledFor) {
+		t.Fatalf("ScheduledFor = %s, want %s", notification.ScheduledFor, wantScheduledFor)
+	}
+}
+
+func TestPlanShiftNotificationsSkipsAlreadyNotifiedShift(t *testing.T) {
+	now := time.Date(2026, 5, 8, 17, 0, 0, 0, time.Local)
+	shift := model.Shift{
+		StaffName: "通知済み",
+		StartTime: time.Date(2026, 5, 8, 18, 0, 0, 0, time.Local),
+		EndTime:   time.Date(2026, 5, 8, 20, 0, 0, 0, time.Local),
+		Location:  "A教室",
+	}
+
+	history := fakeNotificationHistory{
+		notifiedIDs: map[string]bool{
+			NotificationID(shift, model.NotificationTypeOneHourBefore): true,
+		},
+	}
+
+	notifications := PlanShiftNotifications([]model.Shift{shift}, now, time.Hour, history)
+
+	if len(notifications) != 0 {
+		t.Fatalf("len(notifications) = %d, want 0", len(notifications))
+	}
+}
+
+type fakeNotificationHistory struct {
+	notifiedIDs map[string]bool
+}
+
+func (h fakeNotificationHistory) AlreadyNotified(
+	shift model.Shift,
+	notificationType model.NotificationType,
+) bool {
+	return h.notifiedIDs[NotificationID(shift, notificationType)]
+}

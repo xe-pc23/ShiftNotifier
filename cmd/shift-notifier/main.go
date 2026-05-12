@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/xe-pc23/shift-notifier/internal/notification"
 	"github.com/xe-pc23/shift-notifier/internal/parser"
 	"github.com/xe-pc23/shift-notifier/internal/scheduler"
 )
@@ -27,18 +28,21 @@ func main() {
 	fmt.Printf("読み込んだシフト数: %d件\n\n", len(shifts))
 	now := time.Now()
 
-	targets := scheduler.FindNotifyTargets(shifts, now, time.Hour)
+	notifications := scheduler.PlanShiftNotifications(shifts, now, time.Hour, nil)
 
 	fmt.Printf("現在時刻: %s\n", now.Format("2006/01/02 15:04"))
-	fmt.Printf("通知対象のシフト数: %d件\n\n", len(targets))
+	fmt.Printf("通知予定のシフト数: %d件\n\n", len(notifications))
 
-	for _, shift := range targets { //indexは使わないので_で無視
+	for _, planned := range notifications { //indexは使わないので_で無視
+		shift := planned.Shift
 		fmt.Printf(
-			"通知対象: 講師: %s / 時間: %s〜%s / 場所: %s\n",
+			"通知予定: ID: %s / 講師: %s / 時間: %s〜%s / 場所: %s\n",
+			planned.ID,
 			shift.StaffName,
 			shift.StartTime.Format("2006/01/02 15:04"),
 			shift.EndTime.Format("15:04"),
 			shift.Location,
 		)
+		fmt.Printf("メッセージ:\n%s\n\n", notification.BuildShiftReminderMessage(shift))
 	}
 }
