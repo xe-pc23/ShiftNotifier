@@ -79,6 +79,59 @@ func NewStore(db *gorm.DB) *Store {
 }
 
 func (s *Store) UpsertShifts(shifts []model.Shift) ([]model.Shift, error) {
+	var saved []model.Shift
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		store := &Store{db: tx}
+		var err error
+		saved, err = store.upsertShifts(shifts)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return saved, nil
+}
+
+func (s *Store) SyncShifts(shifts []model.Shift) ([]model.Shift, int64, error) {
+	sourceKeys := make([]string, 0, len(shifts))
+	for _, shift := range shifts {
+		sourceKeys = append(sourceKeys, model.ShiftSourceKey(shift))
+	}
+
+	var saved []model.Shift
+	var deletedCount int64
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		store := &Store{db: tx}
+		var err error
+		saved, err = store.upsertShifts(shifts)
+		if err != nil {
+			return err
+		}
+
+		query := tx.Model(&ShiftRecord{})
+		if len(sourceKeys) > 0 {
+			query = query.Where("source_key NOT IN ?", sourceKeys)
+		}
+
+		result := query.Delete(&ShiftRecord{})
+		if result.Error != nil {
+			return fmt.Errorf("Excelから消えたshiftの削除に失敗しました: %w", result.Error)
+		}
+
+		deletedCount = result.RowsAffected
+		return nil
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return saved, deletedCount, nil
+}
+
+func (s *Store) upsertShifts(shifts []model.Shift) ([]model.Shift, error) {
 	saved := make([]model.Shift, 0, len(shifts))
 
 	for _, shift := range shifts {
@@ -199,7 +252,15 @@ func (s *Store) AlreadyNotified(shift model.Shift, notificationType model.Notifi
 
 	var count int64
 	err := s.db.Model(&ShiftNotificationRecord{}).
-		Where("shift_id = ? AND notification_type = ?", shiftID, string(notificationType)).
+		Where(
+			"shift_id = ? AND notification_type = ? AND status IN ?",
+			shiftID,
+			string(notificationType),
+			[]string{
+				string(model.NotificationStatusPending),
+				string(model.NotificationStatusSent),
+			},
+		).
 		Count(&count).Error
 	return err == nil && count > 0
 }

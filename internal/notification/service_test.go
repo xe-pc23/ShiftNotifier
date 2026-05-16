@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -21,7 +22,7 @@ func TestSendShiftReminderMarksSent(t *testing.T) {
 	}
 
 	sender := &fakeSender{}
-	sent := SendShiftReminder(planned, sender, now)
+	sent := SendShiftReminder(context.Background(), planned, sender, now)
 
 	if sent.Status != model.NotificationStatusSent {
 		t.Fatalf("Status = %q, want %q", sent.Status, model.NotificationStatusSent)
@@ -48,7 +49,7 @@ func TestSendShiftReminderMarksFailed(t *testing.T) {
 		Status: model.NotificationStatusPending,
 	}
 
-	sent := SendShiftReminder(planned, &fakeSender{err: errors.New("line api failed")}, now)
+	sent := SendShiftReminder(context.Background(), planned, &fakeSender{err: errors.New("line api failed")}, now)
 
 	if sent.Status != model.NotificationStatusFailed {
 		t.Fatalf("Status = %q, want %q", sent.Status, model.NotificationStatusFailed)
@@ -64,7 +65,41 @@ type fakeSender struct {
 	err     error
 }
 
-func (s *fakeSender) SendShiftReminder(shift model.Shift, message string) error {
+func (s *fakeSender) SendShiftReminder(ctx context.Context, shift model.Shift, message string) error {
 	s.message = message
 	return s.err
+}
+
+func TestParseStaffRecipients(t *testing.T) {
+	recipients, err := ParseStaffRecipients("柴田=U123, 佐藤=U456")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if recipients["柴田"] != "U123" {
+		t.Fatalf("recipients[柴田] = %q, want %q", recipients["柴田"], "U123")
+	}
+
+	if recipients["佐藤"] != "U456" {
+		t.Fatalf("recipients[佐藤] = %q, want %q", recipients["佐藤"], "U456")
+	}
+}
+
+func TestLineSenderRequiresRecipient(t *testing.T) {
+	sender := NewLineSender(&fakePushClient{}, map[string]string{})
+	err := sender.SendShiftReminder(
+		context.Background(),
+		model.Shift{StaffName: "未設定"},
+		"message",
+	)
+
+	if err == nil {
+		t.Fatal("err = nil, want error")
+	}
+}
+
+type fakePushClient struct{}
+
+func (c *fakePushClient) PushText(ctx context.Context, to string, text string) error {
+	return nil
 }

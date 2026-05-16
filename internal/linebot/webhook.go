@@ -113,7 +113,7 @@ func (h *WebhookHandler) handleFileMessage(ctx context.Context, event webhookEve
 		return nil
 	}
 
-	savedShifts, err := h.store.UpsertShifts(shifts)
+	savedShifts, deletedCount, err := h.store.SyncShifts(shifts)
 	if err != nil {
 		_ = h.store.MarkShiftImportFailed(shiftImport.ID, err.Error(), time.Now())
 		_ = h.client.ReplyText(ctx, event.ReplyToken, fmt.Sprintf("シフトの保存に失敗しました。\n%s", err.Error()))
@@ -128,7 +128,7 @@ func (h *WebhookHandler) handleFileMessage(ctx context.Context, event webhookEve
 	return h.client.ReplyText(
 		ctx,
 		event.ReplyToken,
-		fmt.Sprintf("Excelを取り込みました。\nファイル: %s\nシフト: %d件", event.Message.FileName, len(savedShifts)),
+		fmt.Sprintf("Excelを取り込みました。\nファイル: %s\nシフト: %d件\n削除: %d件", event.Message.FileName, len(savedShifts), deletedCount),
 	)
 }
 

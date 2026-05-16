@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -24,12 +25,22 @@ func run() error {
 	if len(os.Args) < 2 { //　引数が設定されているのかの確認　文字列の数で判断
 		fmt.Println("使い方:")
 		fmt.Println("  go run ./cmd/shift-notifier ./testdata/shift.xlsx")
+		fmt.Println("  go run ./cmd/shift-notifier run")
 		fmt.Println("  go run ./cmd/shift-notifier serve")
+		fmt.Println("  go run ./cmd/shift-notifier notify")
+		fmt.Println("  go run ./cmd/shift-notifier notify-loop")
 		os.Exit(1)
 	}
 
-	if os.Args[1] == "serve" {
+	switch os.Args[1] {
+	case "run":
+		return runAll(context.Background())
+	case "serve":
 		return runServer()
+	case "notify":
+		return runNotifyOnce(context.Background())
+	case "notify-loop":
+		return runNotifyLoop(context.Background())
 	}
 
 	store, err := openStore()
@@ -75,45 +86,33 @@ func importLocalExcel(store *repository.Store, filePath string) error {
 	}
 
 	fmt.Printf("読み込んだシフト数: %d件\n\n", len(shifts))
-	savedShifts, err := store.UpsertShifts(shifts)
+	savedShifts, deletedCount, err := store.SyncShifts(shifts)
 	if err != nil {
 		_ = store.MarkShiftImportFailed(shiftImport.ID, err.Error(), time.Now())
 		return err
 	}
 	fmt.Printf("DB保存済みシフト数: %d件\n\n", len(savedShifts))
+	fmt.Printf("Excelから削除されたシフト数: %d件\n\n", deletedCount)
 
 	if err := store.MarkShiftImportImported(shiftImport.ID, time.Now()); err != nil {
 		return err
 	}
 
-	targets, err := store.FindPendingNotificationTargets(now, time.Hour)
-	if err != nil {
-		return err
-	}
-
-	notifications := scheduler.PlanShiftNotifications(targets, now, time.Hour, store)
-
-	fmt.Printf("現在時刻: %s\n", now.Format("2006/01/02 15:04"))
-	fmt.Printf("通知予定のシフト数: %d件\n\n", len(notifications))
-
-	for _, planned := range notifications { //indexは使わないので_で無視
-		shift := planned.Shift
-		fmt.Printf(
-			"通知予定: ID: %s / 講師: %s / 時間: %s〜%s / 場所: %s\n",
-			planned.ID,
-			shift.StaffName,
-			shift.StartTime.Format("2006/01/02 15:04"),
-			shift.EndTime.Format("15:04"),
-			shift.Location,
-		)
-		fmt.Printf("メッセージ:\n%s\n\n", notification.BuildShiftReminderMessage(shift))
-
-		if err := store.SaveNotification(planned); err != nil {
-			return err
-		}
-	}
-
 	return nil
+}
+
+func runAll(ctx context.Context) error {
+	errCh := make(chan error, 2)
+
+	go func() {
+		errCh <- runServer()
+	}()
+
+	go func() {
+		errCh <- runNotifyLoop(ctx)
+	}()
+
+	return <-errCh
 }
 
 func runServer() error {
@@ -151,4 +150,93 @@ func runServer() error {
 	fmt.Printf("LINE webhook server listening on %s\n", addr)
 	fmt.Println("Webhook path: /webhook/line")
 	return http.ListenAndServe(addr, mux)
+}
+
+func runNotifyOnce(ctx context.Context) error {
+	channelAccessToken := os.Getenv("LINE_CHANNEL_ACCESS_TOKEN")
+	if channelAccessToken == "" {
+		return fmt.Errorf("LINE_CHANNEL_ACCESS_TOKEN is required")
+	}
+
+	recipients, err := notification.ParseStaffRecipients(os.Getenv("LINE_STAFF_USER_IDS"))
+	if err != nil {
+		return err
+	}
+	if len(recipients) == 0 {
+		return fmt.Errorf("LINE_STAFF_USER_IDS is required")
+	}
+
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+
+	client := linebot.NewClient(channelAccessToken)
+	sender := notification.NewLineSender(client, recipients)
+	now := time.Now()
+
+	targets, err := store.FindPendingNotificationTargets(now, time.Hour)
+	if err != nil {
+		return err
+	}
+
+	plannedNotifications := scheduler.PlanShiftNotifications(targets, now, time.Hour, store)
+	fmt.Printf("現在時刻: %s\n", now.Format("2006/01/02 15:04"))
+	fmt.Printf("通知対象のシフト数: %d件\n", len(plannedNotifications))
+
+	for _, planned := range plannedNotifications {
+		if err := store.SaveNotification(planned); err != nil {
+			return err
+		}
+
+		sent := notification.SendShiftReminder(ctx, planned, sender, time.Now())
+		if err := store.SaveNotification(sent); err != nil {
+			return err
+		}
+
+		shift := sent.Shift
+		fmt.Printf(
+			"通知結果: status=%s / 講師: %s / 時間: %s〜%s / 場所: %s",
+			sent.Status,
+			shift.StaffName,
+			shift.StartTime.Format("2006/01/02 15:04"),
+			shift.EndTime.Format("15:04"),
+			shift.Location,
+		)
+		if sent.ErrorMessage != "" {
+			fmt.Printf(" / error: %s", sent.ErrorMessage)
+		}
+		fmt.Println()
+	}
+
+	return nil
+}
+
+func runNotifyLoop(ctx context.Context) error {
+	interval := 5 * time.Minute
+	if value := os.Getenv("SHIFT_NOTIFIER_NOTIFY_INTERVAL"); value != "" {
+		parsed, err := time.ParseDuration(value)
+		if err != nil {
+			return fmt.Errorf("SHIFT_NOTIFIER_NOTIFY_INTERVAL is invalid: %w", err)
+		}
+		if parsed <= 0 {
+			return fmt.Errorf("SHIFT_NOTIFIER_NOTIFY_INTERVAL must be positive")
+		}
+		interval = parsed
+	}
+
+	fmt.Printf("notification loop started: interval=%s\n", interval)
+	for {
+		if err := runNotifyOnce(ctx); err != nil {
+			fmt.Printf("notification loop error: %s\n", err)
+		}
+
+		timer := time.NewTimer(interval)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
 }

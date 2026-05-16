@@ -93,6 +93,43 @@ func (c *Client) ReplyText(ctx context.Context, replyToken string, text string) 
 	return nil
 }
 
+func (c *Client) PushText(ctx context.Context, to string, text string) error {
+	payload := pushMessageRequest{
+		To: to,
+		Messages: []textMessage{
+			{
+				Type: "text",
+				Text: text,
+			},
+		},
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiBaseURL+"/v2/bot/message/push", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	c.authorize(req)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("LINE push API failed: status=%d body=%s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
 func (c *Client) authorize(req *http.Request) {
 	req.Header.Set("Authorization", "Bearer "+c.channelAccessToken)
 }
@@ -100,6 +137,11 @@ func (c *Client) authorize(req *http.Request) {
 type replyMessageRequest struct {
 	ReplyToken string        `json:"replyToken"`
 	Messages   []textMessage `json:"messages"`
+}
+
+type pushMessageRequest struct {
+	To       string        `json:"to"`
+	Messages []textMessage `json:"messages"`
 }
 
 type textMessage struct {
