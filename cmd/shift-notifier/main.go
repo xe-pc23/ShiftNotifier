@@ -3,9 +3,11 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"time"
 
+	"github.com/xe-pc23/shift-notifier/internal/linebot"
 	"github.com/xe-pc23/shift-notifier/internal/notification"
 	"github.com/xe-pc23/shift-notifier/internal/parser"
 	"github.com/xe-pc23/shift-notifier/internal/repository"
@@ -22,10 +24,23 @@ func run() error {
 	if len(os.Args) < 2 { //　引数が設定されているのかの確認　文字列の数で判断
 		fmt.Println("使い方:")
 		fmt.Println("  go run ./cmd/shift-notifier ./testdata/shift.xlsx")
+		fmt.Println("  go run ./cmd/shift-notifier serve")
 		os.Exit(1)
 	}
 
-	filePath := os.Args[1]
+	if os.Args[1] == "serve" {
+		return runServer()
+	}
+
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+
+	return importLocalExcel(store, os.Args[1])
+}
+
+func openStore() (*repository.Store, error) {
 	dbPath := os.Getenv("SHIFT_NOTIFIER_DB_PATH")
 	if dbPath == "" {
 		dbPath = "shift_notifier.db"
@@ -33,14 +48,17 @@ func run() error {
 
 	db, err := repository.OpenSQLite(dbPath)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := repository.AutoMigrate(db); err != nil {
-		return err
+		return nil, err
 	}
 
-	store := repository.NewStore(db)
+	return repository.NewStore(db), nil
+}
+
+func importLocalExcel(store *repository.Store, filePath string) error {
 	now := time.Now()
 
 	shiftImport, err := store.BeginShiftImport(filePath, now)
@@ -96,4 +114,41 @@ func run() error {
 	}
 
 	return nil
+}
+
+func runServer() error {
+	channelSecret := os.Getenv("LINE_CHANNEL_SECRET")
+	if channelSecret == "" {
+		return fmt.Errorf("LINE_CHANNEL_SECRET is required")
+	}
+
+	channelAccessToken := os.Getenv("LINE_CHANNEL_ACCESS_TOKEN")
+	if channelAccessToken == "" {
+		return fmt.Errorf("LINE_CHANNEL_ACCESS_TOKEN is required")
+	}
+
+	importDir := os.Getenv("SHIFT_NOTIFIER_IMPORT_DIR")
+	if importDir == "" {
+		importDir = "imports"
+	}
+
+	addr := os.Getenv("SHIFT_NOTIFIER_ADDR")
+	if addr == "" {
+		addr = ":8080"
+	}
+
+	store, err := openStore()
+	if err != nil {
+		return err
+	}
+
+	client := linebot.NewClient(channelAccessToken)
+	handler := linebot.NewWebhookHandler(channelSecret, client, store, importDir)
+
+	mux := http.NewServeMux()
+	mux.Handle("/webhook/line", handler)
+
+	fmt.Printf("LINE webhook server listening on %s\n", addr)
+	fmt.Println("Webhook path: /webhook/line")
+	return http.ListenAndServe(addr, mux)
 }

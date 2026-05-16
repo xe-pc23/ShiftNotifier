@@ -120,13 +120,21 @@ func (s *Store) UpsertShifts(shifts []model.Shift) ([]model.Shift, error) {
 }
 
 func (s *Store) BeginShiftImport(filePath string, now time.Time) (model.ShiftImport, error) {
+	return s.beginShiftImportWithSource(filePath, "local_excel", now)
+}
+
+func (s *Store) BeginLineShiftImport(filePath string, now time.Time) (model.ShiftImport, error) {
+	return s.beginShiftImportWithSource(filePath, "line_excel", now)
+}
+
+func (s *Store) beginShiftImportWithSource(filePath string, sourceType string, now time.Time) (model.ShiftImport, error) {
 	fileHash, err := fileSHA256(filePath)
 	if err != nil {
 		return model.ShiftImport{}, fmt.Errorf("Excelファイルのハッシュ計算に失敗しました: %w", err)
 	}
 
 	record := ShiftImportRecord{
-		SourceType: "local_excel",
+		SourceType: sourceType,
 		FileName:   filepath.Base(filePath),
 		FilePath:   filePath,
 		FileHash:   fileHash,
