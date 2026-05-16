@@ -111,6 +111,7 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 			}
 
 			if ok {
+				shift.SourceKey = fmt.Sprintf("%s|row:%d|staff_block:%d", sheetName, rowIndex, i)
 				shifts = append(shifts, shift)
 			}
 		}
@@ -261,9 +262,9 @@ func parseDateText(text string, currentYear int, currentMonth int) (time.Time, b
 }
 
 func extractYearMonth(text string) (int, int, error) {
-	text = normalizeNumber(text)//全角数字を半角に変換
+	text = normalizeNumber(text) //全角数字を半角に変換
 
-	re := regexp.MustCompile(`([0-9]{4})\s*年\s*([0-9]{1,2})\s*月`)//正規表現して*regexp.Regexp を返す
+	re := regexp.MustCompile(`([0-9]{4})\s*年\s*([0-9]{1,2})\s*月`) //正規表現して*regexp.Regexp を返す
 	matches := re.FindStringSubmatch(text)
 
 	if len(matches) < 3 {
