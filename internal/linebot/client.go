@@ -2,6 +2,7 @@ package linebot
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -33,9 +34,9 @@ func NewClient(channelAccessToken string) *Client {
 	}
 }
 
-func (c *Client) GetMessageContent(messageID string) (io.ReadCloser, error) {
+func (c *Client) GetMessageContent(ctx context.Context, messageID string) (io.ReadCloser, error) {
 	endpoint := fmt.Sprintf("%s/v2/bot/message/%s/content", c.dataAPIBaseURL, url.PathEscape(messageID))
-	req, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +56,7 @@ func (c *Client) GetMessageContent(messageID string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-func (c *Client) ReplyText(replyToken string, text string) error {
+func (c *Client) ReplyText(ctx context.Context, replyToken string, text string) error {
 	payload := replyMessageRequest{
 		ReplyToken: replyToken,
 		Messages: []textMessage{
@@ -71,7 +72,7 @@ func (c *Client) ReplyText(replyToken string, text string) error {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPost, c.apiBaseURL+"/v2/bot/message/reply", bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiBaseURL+"/v2/bot/message/reply", bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

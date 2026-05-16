@@ -2,12 +2,14 @@ package linebot
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -64,16 +66,47 @@ func TestSanitizeFileName(t *testing.T) {
 	}
 }
 
+func TestSaveMessageContentUsesFinalPath(t *testing.T) {
+	importDir := t.TempDir()
+	client := &fakeLINEClient{content: []byte("excel bytes")}
+	handler := NewWebhookHandler("secret", client, nil, importDir)
+
+	path, err := handler.saveMessageContent(context.Background(), "message-id", "shift.xlsx")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if filepath.Base(path) != "message-id_shift.xlsx" {
+		t.Fatalf("saved file = %q, want %q", filepath.Base(path), "message-id_shift.xlsx")
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != "excel bytes" {
+		t.Fatalf("content = %q, want %q", string(content), "excel bytes")
+	}
+
+	entries, err := os.ReadDir(importDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("len(entries) = %d, want 1", len(entries))
+	}
+}
+
 type fakeLINEClient struct {
 	content   []byte
 	replyText string
 }
 
-func (c *fakeLINEClient) GetMessageContent(messageID string) (io.ReadCloser, error) {
+func (c *fakeLINEClient) GetMessageContent(ctx context.Context, messageID string) (io.ReadCloser, error) {
 	return io.NopCloser(bytes.NewReader(c.content)), nil
 }
 
-func (c *fakeLINEClient) ReplyText(replyToken string, text string) error {
+func (c *fakeLINEClient) ReplyText(ctx context.Context, replyToken string, text string) error {
 	c.replyText = text
 	return nil
 }

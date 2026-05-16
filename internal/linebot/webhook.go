@@ -1,6 +1,7 @@
 package linebot
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -19,8 +20,8 @@ import (
 )
 
 type ContentClient interface {
-	GetMessageContent(messageID string) (io.ReadCloser, error)
-	ReplyText(replyToken string, text string) error
+	GetMessageContent(ctx context.Context, messageID string) (io.ReadCloser, error)
+	ReplyText(ctx context.Context, replyToken string, text string) error
 }
 
 type WebhookHandler struct {
@@ -67,7 +68,7 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		if err := h.handleFileMessage(event); err != nil {
+		if err := h.handleFileMessage(r.Context(), event); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -87,51 +88,52 @@ func ValidateSignature(channelSecret string, body []byte, signature string) bool
 	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
-func (h *WebhookHandler) handleFileMessage(event webhookEvent) error {
+func (h *WebhookHandler) handleFileMessage(ctx context.Context, event webhookEvent) error {
 	if !isExcelFile(event.Message.FileName) {
-		return h.client.ReplyText(event.ReplyToken, "Excelファイル（.xlsx / .xls）を送信してください。")
+		return h.client.ReplyText(ctx, event.ReplyToken, "Excelファイル（.xlsx / .xls）を送信してください。")
 	}
 
-	savedPath, err := h.saveMessageContent(event.Message.ID, event.Message.FileName)
+	savedPath, err := h.saveMessageContent(ctx, event.Message.ID, event.Message.FileName)
 	if err != nil {
-		_ = h.client.ReplyText(event.ReplyToken, "Excelファイルの保存に失敗しました。")
+		_ = h.client.ReplyText(ctx, event.ReplyToken, "Excelファイルの保存に失敗しました。")
 		return err
 	}
 
 	now := time.Now()
 	shiftImport, err := h.store.BeginLineShiftImport(savedPath, now)
 	if err != nil {
-		_ = h.client.ReplyText(event.ReplyToken, "取込履歴の保存に失敗しました。")
+		_ = h.client.ReplyText(ctx, event.ReplyToken, "取込履歴の保存に失敗しました。")
 		return err
 	}
 
 	shifts, err := parser.ParseExcel(savedPath, parser.DefaultSourceConfig)
 	if err != nil {
 		_ = h.store.MarkShiftImportFailed(shiftImport.ID, err.Error(), time.Now())
-		_ = h.client.ReplyText(event.ReplyToken, fmt.Sprintf("Excelの解析に失敗しました。\n%s", err.Error()))
+		_ = h.client.ReplyText(ctx, event.ReplyToken, fmt.Sprintf("Excelの解析に失敗しました。\n%s", err.Error()))
 		return nil
 	}
 
 	savedShifts, err := h.store.UpsertShifts(shifts)
 	if err != nil {
 		_ = h.store.MarkShiftImportFailed(shiftImport.ID, err.Error(), time.Now())
-		_ = h.client.ReplyText(event.ReplyToken, fmt.Sprintf("シフトの保存に失敗しました。\n%s", err.Error()))
+		_ = h.client.ReplyText(ctx, event.ReplyToken, fmt.Sprintf("シフトの保存に失敗しました。\n%s", err.Error()))
 		return nil
 	}
 
 	if err := h.store.MarkShiftImportImported(shiftImport.ID, time.Now()); err != nil {
-		_ = h.client.ReplyText(event.ReplyToken, "取込完了後の履歴更新に失敗しました。")
+		_ = h.client.ReplyText(ctx, event.ReplyToken, "取込完了後の履歴更新に失敗しました。")
 		return err
 	}
 
 	return h.client.ReplyText(
+		ctx,
 		event.ReplyToken,
 		fmt.Sprintf("Excelを取り込みました。\nファイル: %s\nシフト: %d件", event.Message.FileName, len(savedShifts)),
 	)
 }
 
-func (h *WebhookHandler) saveMessageContent(messageID string, fileName string) (string, error) {
-	content, err := h.client.GetMessageContent(messageID)
+func (h *WebhookHandler) saveMessageContent(ctx context.Context, messageID string, fileName string) (string, error) {
+	content, err := h.client.GetMessageContent(ctx, messageID)
 	if err != nil {
 		return "", err
 	}
@@ -143,13 +145,23 @@ func (h *WebhookHandler) saveMessageContent(messageID string, fileName string) (
 
 	safeName := sanitizeFileName(fileName)
 	path := filepath.Join(h.importDir, fmt.Sprintf("%s_%s", messageID, safeName))
-	file, err := os.Create(path)
+	tempFile, err := os.CreateTemp(h.importDir, ".download-*")
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	tempPath := tempFile.Name()
+	defer os.Remove(tempPath)
 
-	if _, err := io.Copy(file, content); err != nil {
+	if _, err := io.Copy(tempFile, content); err != nil {
+		_ = tempFile.Close()
+		return "", err
+	}
+
+	if err := tempFile.Close(); err != nil {
+		return "", err
+	}
+
+	if err := os.Rename(tempPath, path); err != nil {
 		return "", err
 	}
 
