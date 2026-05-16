@@ -236,7 +236,7 @@ func (s *Store) FindPendingNotificationTargets(now time.Time, before time.Durati
 	targets := make([]model.Shift, 0, len(records))
 	for _, record := range records {
 		shift := shiftFromRecord(record)
-		if !s.AlreadyNotified(shift, model.NotificationTypeOneHourBefore) {
+		if !s.AlreadyNotified(shift, model.NotificationTypeShiftReminder) {
 			targets = append(targets, shift)
 		}
 	}

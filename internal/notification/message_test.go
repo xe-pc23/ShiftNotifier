@@ -16,10 +16,10 @@ func TestBuildShiftReminderMessage(t *testing.T) {
 		Location:  "A教室",
 	}
 
-	message := BuildShiftReminderMessage(shift)
+	message := BuildShiftReminderMessage(shift, 2*time.Hour)
 
 	wants := []string{
-		"まもなく勤務開始です。",
+		"勤務開始2時間前です。",
 		"講師: 柴田",
 		"場所: A教室",
 		"時間: 2026/05/08 18:00〜20:00",

@@ -13,6 +13,8 @@ type NotificationHistory interface {
 	AlreadyNotified(shift model.Shift, notificationType model.NotificationType) bool
 }
 
+const DefaultShiftReminderBefore = 2 * time.Hour
+
 func FindNotifyTargets(shifts []model.Shift, now time.Time, before time.Duration) []model.Shift {
 	var targets []model.Shift
 
@@ -53,7 +55,7 @@ func PlanShiftNotifications(
 	notifications := make([]model.ShiftNotification, 0, len(targets))
 
 	for _, shift := range targets {
-		notificationType := model.NotificationTypeOneHourBefore
+		notificationType := model.NotificationTypeShiftReminder
 		if history != nil && history.AlreadyNotified(shift, notificationType) {
 			continue
 		}

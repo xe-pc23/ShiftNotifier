@@ -21,18 +21,18 @@ func TestShouldNotify(t *testing.T) {
 		want bool
 	}{
 		{
-			name: "1時間前ちょうどなら通知対象",
-			now:  time.Date(2026, 5, 8, 17, 0, 0, 0, time.Local),
+			name: "2時間前ちょうどなら通知対象",
+			now:  time.Date(2026, 5, 8, 16, 0, 0, 0, time.Local),
 			want: true,
 		},
 		{
-			name: "1時間前を過ぎて開始前なら通知対象",
+			name: "2時間前を過ぎて開始前なら通知対象",
 			now:  time.Date(2026, 5, 8, 17, 30, 0, 0, time.Local),
 			want: true,
 		},
 		{
-			name: "1時間前より前なら通知しない",
-			now:  time.Date(2026, 5, 8, 16, 59, 0, 0, time.Local),
+			name: "2時間前より前なら通知しない",
+			now:  time.Date(2026, 5, 8, 15, 59, 0, 0, time.Local),
 			want: false,
 		},
 		{
@@ -41,7 +41,7 @@ func TestShouldNotify(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "日付が違っても1時間前より前なら通知しない",
+			name: "日付が違っても2時間前より前なら通知しない",
 			now:  time.Date(2026, 5, 7, 23, 30, 0, 0, time.Local),
 			want: false,
 		},
@@ -54,7 +54,7 @@ func TestShouldNotify(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ShouldNotify(shift, tt.now, time.Hour)
+			got := ShouldNotify(shift, tt.now, DefaultShiftReminderBefore)
 			if got != tt.want {
 				t.Fatalf("ShouldNotify() = %v, want %v", got, tt.want)
 			}
@@ -70,15 +70,15 @@ func TestShouldNotifyAcrossDateBoundary(t *testing.T) {
 		Location:  "深夜教室",
 	}
 
-	now := time.Date(2026, 5, 8, 23, 30, 0, 0, time.Local)
+	now := time.Date(2026, 5, 8, 22, 30, 0, 0, time.Local)
 
-	if !ShouldNotify(shift, now, time.Hour) {
+	if !ShouldNotify(shift, now, DefaultShiftReminderBefore) {
 		t.Fatal("ShouldNotify() = false, want true")
 	}
 }
 
 func TestFindNotifyTargets(t *testing.T) {
-	now := time.Date(2026, 5, 8, 17, 0, 0, 0, time.Local)
+	now := time.Date(2026, 5, 8, 16, 0, 0, 0, time.Local)
 	shifts := []model.Shift{
 		{
 			StaffName: "通知対象",
@@ -94,7 +94,7 @@ func TestFindNotifyTargets(t *testing.T) {
 		},
 	}
 
-	targets := FindNotifyTargets(shifts, now, time.Hour)
+	targets := FindNotifyTargets(shifts, now, DefaultShiftReminderBefore)
 
 	if len(targets) != 1 {
 		t.Fatalf("len(targets) = %d, want 1", len(targets))
@@ -106,7 +106,7 @@ func TestFindNotifyTargets(t *testing.T) {
 }
 
 func TestPlanShiftNotifications(t *testing.T) {
-	now := time.Date(2026, 5, 8, 17, 0, 0, 0, time.Local)
+	now := time.Date(2026, 5, 8, 16, 0, 0, 0, time.Local)
 	shift := model.Shift{
 		StaffName: "通知対象",
 		StartTime: time.Date(2026, 5, 8, 18, 0, 0, 0, time.Local),
@@ -114,7 +114,7 @@ func TestPlanShiftNotifications(t *testing.T) {
 		Location:  "A教室",
 	}
 
-	notifications := PlanShiftNotifications([]model.Shift{shift}, now, time.Hour, nil)
+	notifications := PlanShiftNotifications([]model.Shift{shift}, now, DefaultShiftReminderBefore, nil)
 
 	if len(notifications) != 1 {
 		t.Fatalf("len(notifications) = %d, want 1", len(notifications))
@@ -125,22 +125,22 @@ func TestPlanShiftNotifications(t *testing.T) {
 		t.Fatal("notification.ID is empty")
 	}
 
-	if notification.NotificationType != model.NotificationTypeOneHourBefore {
-		t.Fatalf("NotificationType = %q, want %q", notification.NotificationType, model.NotificationTypeOneHourBefore)
+	if notification.NotificationType != model.NotificationTypeShiftReminder {
+		t.Fatalf("NotificationType = %q, want %q", notification.NotificationType, model.NotificationTypeShiftReminder)
 	}
 
 	if notification.Status != model.NotificationStatusPending {
 		t.Fatalf("Status = %q, want %q", notification.Status, model.NotificationStatusPending)
 	}
 
-	wantScheduledFor := time.Date(2026, 5, 8, 17, 0, 0, 0, time.Local)
+	wantScheduledFor := time.Date(2026, 5, 8, 16, 0, 0, 0, time.Local)
 	if !notification.ScheduledFor.Equal(wantScheduledFor) {
 		t.Fatalf("ScheduledFor = %s, want %s", notification.ScheduledFor, wantScheduledFor)
 	}
 }
 
 func TestPlanShiftNotificationsSkipsAlreadyNotifiedShift(t *testing.T) {
-	now := time.Date(2026, 5, 8, 17, 0, 0, 0, time.Local)
+	now := time.Date(2026, 5, 8, 16, 0, 0, 0, time.Local)
 	shift := model.Shift{
 		StaffName: "通知済み",
 		StartTime: time.Date(2026, 5, 8, 18, 0, 0, 0, time.Local),
@@ -150,11 +150,11 @@ func TestPlanShiftNotificationsSkipsAlreadyNotifiedShift(t *testing.T) {
 
 	history := fakeNotificationHistory{
 		notifiedIDs: map[string]bool{
-			NotificationID(shift, model.NotificationTypeOneHourBefore): true,
+			NotificationID(shift, model.NotificationTypeShiftReminder): true,
 		},
 	}
 
-	notifications := PlanShiftNotifications([]model.Shift{shift}, now, time.Hour, history)
+	notifications := PlanShiftNotifications([]model.Shift{shift}, now, DefaultShiftReminderBefore, history)
 
 	if len(notifications) != 0 {
 		t.Fatalf("len(notifications) = %d, want 0", len(notifications))

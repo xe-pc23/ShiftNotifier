@@ -174,14 +174,19 @@ func runNotifyOnce(ctx context.Context) error {
 	client := linebot.NewClient(channelAccessToken)
 	sender := notification.NewLineSender(client, recipients)
 	now := time.Now()
-
-	targets, err := store.FindPendingNotificationTargets(now, time.Hour)
+	reminderBefore, err := shiftReminderBefore()
 	if err != nil {
 		return err
 	}
 
-	plannedNotifications := scheduler.PlanShiftNotifications(targets, now, time.Hour, store)
+	targets, err := store.FindPendingNotificationTargets(now, reminderBefore)
+	if err != nil {
+		return err
+	}
+
+	plannedNotifications := scheduler.PlanShiftNotifications(targets, now, reminderBefore, store)
 	fmt.Printf("現在時刻: %s\n", now.Format("2006/01/02 15:04"))
+	fmt.Printf("通知タイミング: 勤務開始%s前\n", reminderBefore)
 	fmt.Printf("通知対象のシフト数: %d件\n", len(plannedNotifications))
 
 	for _, planned := range plannedNotifications {
@@ -210,6 +215,23 @@ func runNotifyOnce(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func shiftReminderBefore() (time.Duration, error) {
+	value := os.Getenv("SHIFT_NOTIFIER_REMINDER_BEFORE")
+	if value == "" {
+		return scheduler.DefaultShiftReminderBefore, nil
+	}
+
+	parsed, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("SHIFT_NOTIFIER_REMINDER_BEFORE is invalid: %w", err)
+	}
+	if parsed <= 0 {
+		return 0, fmt.Errorf("SHIFT_NOTIFIER_REMINDER_BEFORE must be positive")
+	}
+
+	return parsed, nil
 }
 
 func runNotifyLoop(ctx context.Context) error {

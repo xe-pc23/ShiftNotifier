@@ -84,8 +84,8 @@ func TestSyncShiftsDeletesMissingShifts(t *testing.T) {
 	}
 
 	targets, err := store.FindPendingNotificationTargets(
-		time.Date(2026, 5, 16, 17, 30, 0, 0, time.Local),
-		time.Hour,
+		time.Date(2026, 5, 16, 16, 30, 0, 0, time.Local),
+		scheduler.DefaultShiftReminderBefore,
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestSyncShiftsDeletesMissingShifts(t *testing.T) {
 
 func TestFindPendingNotificationTargetsSkipsNotifiedShift(t *testing.T) {
 	store := newTestStore(t)
-	now := time.Date(2026, 5, 16, 17, 0, 0, 0, time.Local)
+	now := time.Date(2026, 5, 16, 16, 30, 0, 0, time.Local)
 
 	notifyTarget := model.Shift{
 		StaffName: "通知対象",
@@ -123,10 +123,10 @@ func TestFindPendingNotificationTargetsSkipsNotifiedShift(t *testing.T) {
 	}
 
 	planned := model.ShiftNotification{
-		ID:               scheduler.NotificationID(saved[1], model.NotificationTypeOneHourBefore),
+		ID:               scheduler.NotificationID(saved[1], model.NotificationTypeShiftReminder),
 		Shift:            saved[1],
-		NotificationType: model.NotificationTypeOneHourBefore,
-		ScheduledFor:     saved[1].StartTime.Add(-time.Hour),
+		NotificationType: model.NotificationTypeShiftReminder,
+		ScheduledFor:     saved[1].StartTime.Add(-scheduler.DefaultShiftReminderBefore),
 		Status:           model.NotificationStatusSent,
 		CreatedAt:        now,
 		UpdatedAt:        now,
@@ -135,7 +135,7 @@ func TestFindPendingNotificationTargetsSkipsNotifiedShift(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	targets, err := store.FindPendingNotificationTargets(now, time.Hour)
+	targets, err := store.FindPendingNotificationTargets(now, scheduler.DefaultShiftReminderBefore)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +150,7 @@ func TestFindPendingNotificationTargetsSkipsNotifiedShift(t *testing.T) {
 
 func TestFindPendingNotificationTargetsRetriesFailedShift(t *testing.T) {
 	store := newTestStore(t)
-	now := time.Date(2026, 5, 16, 17, 0, 0, 0, time.Local)
+	now := time.Date(2026, 5, 16, 16, 0, 0, 0, time.Local)
 
 	shift := model.Shift{
 		StaffName: "失敗済み",
@@ -165,10 +165,10 @@ func TestFindPendingNotificationTargetsRetriesFailedShift(t *testing.T) {
 	}
 
 	planned := model.ShiftNotification{
-		ID:               scheduler.NotificationID(saved[0], model.NotificationTypeOneHourBefore),
+		ID:               scheduler.NotificationID(saved[0], model.NotificationTypeShiftReminder),
 		Shift:            saved[0],
-		NotificationType: model.NotificationTypeOneHourBefore,
-		ScheduledFor:     saved[0].StartTime.Add(-time.Hour),
+		NotificationType: model.NotificationTypeShiftReminder,
+		ScheduledFor:     saved[0].StartTime.Add(-scheduler.DefaultShiftReminderBefore),
 		Status:           model.NotificationStatusFailed,
 		ErrorMessage:     "temporary error",
 		CreatedAt:        now,
@@ -178,7 +178,7 @@ func TestFindPendingNotificationTargetsRetriesFailedShift(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	targets, err := store.FindPendingNotificationTargets(now, time.Hour)
+	targets, err := store.FindPendingNotificationTargets(now, scheduler.DefaultShiftReminderBefore)
 	if err != nil {
 		t.Fatal(err)
 	}

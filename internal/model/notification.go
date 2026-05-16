@@ -5,7 +5,7 @@ import "time"
 type NotificationType string
 
 const (
-	NotificationTypeOneHourBefore NotificationType = "one_hour_before"
+	NotificationTypeShiftReminder NotificationType = "shift_reminder"
 )
 
 type NotificationStatus string

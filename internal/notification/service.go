@@ -86,7 +86,11 @@ func SendShiftReminder(
 		return planned
 	}
 
-	message := BuildShiftReminderMessage(planned.Shift)
+	reminderBefore := planned.Shift.StartTime.Sub(planned.ScheduledFor)
+	if planned.ScheduledFor.IsZero() {
+		reminderBefore = planned.Shift.StartTime.Sub(now)
+	}
+	message := BuildShiftReminderMessage(planned.Shift, reminderBefore)
 	if err := sender.SendShiftReminder(ctx, planned.Shift, message); err != nil {
 		planned.Status = model.NotificationStatusFailed
 		planned.ErrorMessage = err.Error()
