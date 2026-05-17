@@ -64,7 +64,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, event := range payload.Events {
-		if event.Type != "message" || event.Message.Type != "file" {
+		if event.Type != "message" {
+			continue
+		}
+
+		if event.Message.Type == "text" && isUserIDRequest(event.Message.Text) {
+			if err := h.replyUserID(r.Context(), event); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			continue
+		}
+
+		if event.Message.Type != "file" {
 			continue
 		}
 
@@ -75,6 +87,19 @@ func (h *WebhookHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
+}
+
+func isUserIDRequest(text string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(text))
+	return normalized == "id" || normalized == "line id" || normalized == "userid" || normalized == "user id" || normalized == "ユーザーid"
+}
+
+func (h *WebhookHandler) replyUserID(ctx context.Context, event webhookEvent) error {
+	if event.Source.UserID == "" {
+		return h.client.ReplyText(ctx, event.ReplyToken, "User IDを取得できませんでした。1対1のトークで送信してください。")
+	}
+
+	return h.client.ReplyText(ctx, event.ReplyToken, fmt.Sprintf("あなたのLINE User ID:\n%s", event.Source.UserID))
 }
 
 func ValidateSignature(channelSecret string, body []byte, signature string) bool {
@@ -190,7 +215,12 @@ type webhookPayload struct {
 type webhookEvent struct {
 	Type       string         `json:"type"`
 	ReplyToken string         `json:"replyToken"`
+	Source     webhookSource  `json:"source"`
 	Message    webhookMessage `json:"message"`
+}
+
+type webhookSource struct {
+	UserID string `json:"userId"`
 }
 
 type webhookMessage struct {
@@ -198,4 +228,5 @@ type webhookMessage struct {
 	ID       string `json:"id"`
 	FileName string `json:"fileName"`
 	FileSize int64  `json:"fileSize"`
+	Text     string `json:"text"`
 }

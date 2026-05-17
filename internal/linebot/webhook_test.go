@@ -59,6 +59,24 @@ func TestWebhookRejectsNonExcelFile(t *testing.T) {
 	}
 }
 
+func TestWebhookRepliesUserID(t *testing.T) {
+	secret := "secret"
+	body := []byte(`{"events":[{"type":"message","replyToken":"reply-token","source":{"type":"user","userId":"U123456"},"message":{"type":"text","id":"message-id","text":"id"}}]}`)
+	client := &fakeLINEClient{}
+	handler := NewWebhookHandler(secret, client, nil, t.TempDir())
+	req := signedRequest(secret, body)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+	if !strings.Contains(client.replyText, "U123456") {
+		t.Fatalf("replyText = %q, want user ID", client.replyText)
+	}
+}
+
 func TestSanitizeFileName(t *testing.T) {
 	got := sanitizeFileName(filepath.Join("..", "危険な ファイル.xlsx"))
 	if got != "_.xlsx" {
