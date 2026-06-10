@@ -26,7 +26,15 @@ if [ "$RUN_TESTS" = "true" ]; then
   go test ./...
 fi
 
-go build -o "$BIN_PATH" ./cmd/shift-notifier
+BIN_DIR="$(dirname "$BIN_PATH")"
+BIN_NAME="$(basename "$BIN_PATH")"
+TEMP_BIN="$(mktemp "$BIN_DIR/.${BIN_NAME}.tmp.XXXXXX")"
+trap 'rm -f "$TEMP_BIN"' EXIT
+
+go build -o "$TEMP_BIN" ./cmd/shift-notifier
+chmod 755 "$TEMP_BIN"
+mv "$TEMP_BIN" "$BIN_PATH"
+trap - EXIT
 
 if [ -n "$RESTART_CMD" ]; then
   bash -lc "$RESTART_CMD"
