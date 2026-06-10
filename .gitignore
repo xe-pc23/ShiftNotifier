@@ -4,3 +4,5 @@ data/*
 .env
 shift_notifier.db
 imports/*
+shift-notifier
+docs/*
