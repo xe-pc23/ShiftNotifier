@@ -75,6 +75,7 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 
 	var currentYear int
 	var currentMonth int
+	expectStaffNames := false
 
 	for rowIndex := config.DataStartRow; rowIndex <= len(rows); rowIndex++ {
 		dateText, err := getCellValue(f, sheetName, config.DateColumn, rowIndex)
@@ -83,6 +84,18 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 		}
 
 		dateText = strings.TrimSpace(dateText) // 前後の空白を削除
+		if rowIndex == config.StaffHeaderRow || expectStaffNames {
+			updatedStaffNames, err := updateStaffNamesFromRow(f, sheetName, config, rowIndex, staffNames)
+			if err != nil {
+				return nil, err
+			}
+			if hasStaffNameChange(staffNames, updatedStaffNames) {
+				staffNames = updatedStaffNames
+				expectStaffNames = false
+				continue
+			}
+		}
+
 		if dateText == "" {
 			continue
 		}
@@ -91,6 +104,11 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 		if err == nil {
 			currentYear = year
 			currentMonth = month
+			staffNames, err = updateStaffNamesFromRow(f, sheetName, config, rowIndex, staffNames)
+			if err != nil {
+				return nil, err
+			}
+			expectStaffNames = true
 			continue
 		}
 
@@ -98,6 +116,7 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 		if !ok {
 			continue
 		}
+		expectStaffNames = false
 
 		for i, block := range config.StaffBlocks {
 			staffName := staffNames[i]
@@ -133,6 +152,47 @@ func readStaffNames(f *excelize.File, sheetName string, config SourceConfig) ([]
 	}
 
 	return staffNames, nil
+}
+
+func updateStaffNamesFromRow(
+	f *excelize.File,
+	sheetName string,
+	config SourceConfig,
+	rowIndex int,
+	currentStaffNames []string,
+) ([]string, error) {
+	updated := make([]string, len(currentStaffNames))
+	copy(updated, currentStaffNames)
+
+	for i, block := range config.StaffBlocks {
+		name, err := getCellValue(f, sheetName, block.NameCol, rowIndex)
+		if err != nil {
+			return nil, err
+		}
+
+		name = strings.TrimSpace(name)
+		if name == "" || !isStaffNameLike(name) {
+			continue
+		}
+
+		updated[i] = name
+	}
+
+	return updated, nil
+}
+
+func hasStaffNameChange(currentStaffNames []string, updatedStaffNames []string) bool {
+	if len(currentStaffNames) != len(updatedStaffNames) {
+		return true
+	}
+
+	for i := range currentStaffNames {
+		if currentStaffNames[i] != updatedStaffNames[i] {
+			return true
+		}
+	}
+
+	return false
 }
 
 func readShiftFromBlock(
@@ -364,6 +424,23 @@ func isTimeLike(text string) bool {
 
 	_, _, err := parseTimeText(text)
 	return err == nil
+}
+
+func isStaffNameLike(text string) bool {
+	text = strings.TrimSpace(text)
+	if text == "" || isTimeLike(text) {
+		return false
+	}
+
+	if _, _, err := extractYearMonth(text); err == nil {
+		return false
+	}
+
+	if _, ok := parseDateText(text, 0, 0); ok {
+		return false
+	}
+
+	return true
 }
 
 func uniqueShifts(shifts []model.Shift) []model.Shift {
