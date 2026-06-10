@@ -25,6 +25,7 @@ jobs:
       HOME_SERVER_KNOWN_HOSTS: ${{ secrets.HOME_SERVER_KNOWN_HOSTS }}
       HOME_SERVER_APP_DIR: ${{ secrets.HOME_SERVER_APP_DIR }}
       HOME_SERVER_BIN_PATH: ${{ secrets.HOME_SERVER_BIN_PATH }}
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
 
     steps:
       - name: Validate deployment secrets
@@ -34,6 +35,13 @@ jobs:
           test -n "$HOME_SERVER_SSH_KEY"
           test -n "$HOME_SERVER_APP_DIR"
           test -n "$HOME_SERVER_BIN_PATH"
+          test -n "$TAILSCALE_AUTHKEY"
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          ping: ${{ secrets.HOME_SERVER_HOST }}
 
       - name: Configure SSH
         run: |
