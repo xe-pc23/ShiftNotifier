@@ -1,0 +1,70 @@
+name: Deploy
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to home server
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+
+    env:
+      HOME_SERVER_HOST: ${{ secrets.HOME_SERVER_HOST }}
+      HOME_SERVER_PORT: ${{ secrets.HOME_SERVER_PORT }}
+      HOME_SERVER_USER: ${{ secrets.HOME_SERVER_USER }}
+      HOME_SERVER_SSH_KEY: ${{ secrets.HOME_SERVER_SSH_KEY }}
+      HOME_SERVER_KNOWN_HOSTS: ${{ secrets.HOME_SERVER_KNOWN_HOSTS }}
+      HOME_SERVER_APP_DIR: ${{ secrets.HOME_SERVER_APP_DIR }}
+
+    steps:
+      - name: Validate deployment secrets
+        run: |
+          test -n "$HOME_SERVER_HOST"
+          test -n "$HOME_SERVER_USER"
+          test -n "$HOME_SERVER_SSH_KEY"
+          test -n "$HOME_SERVER_APP_DIR"
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$HOME_SERVER_SSH_KEY" > ~/.ssh/home_server_key
+          chmod 600 ~/.ssh/home_server_key
+
+          PORT="${HOME_SERVER_PORT:-22}"
+          if [ -n "$HOME_SERVER_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$HOME_SERVER_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "$PORT" "$HOME_SERVER_HOST" > ~/.ssh/known_hosts
+          fi
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Deploy over SSH
+        run: |
+          PORT="${HOME_SERVER_PORT:-22}"
+
+          ssh \
+            -i ~/.ssh/home_server_key \
+            -p "$PORT" \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$HOME_SERVER_USER@$HOME_SERVER_HOST" \
+            "SHIFT_NOTIFIER_APP_DIR='$HOME_SERVER_APP_DIR' bash -s" <<'EOSSH'
+          set -euo pipefail
+
+          cd "$SHIFT_NOTIFIER_APP_DIR"
+          git fetch origin main
+          git checkout main
+          git pull --ff-only origin main
+          bash scripts/deploy.sh
+          EOSSH
