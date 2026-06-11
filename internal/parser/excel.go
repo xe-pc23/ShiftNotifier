@@ -84,12 +84,12 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 		}
 
 		dateText = strings.TrimSpace(dateText) // 前後の空白を削除
-		if rowIndex == config.StaffHeaderRow || expectStaffNames {
-			updatedStaffNames, err := updateStaffNamesFromRow(f, sheetName, config, rowIndex, staffNames)
+		if rowIndex == config.StaffHeaderRow || expectStaffNames || dateText == "" {
+			updatedStaffNames, changed, err := updateStaffNamesFromRow(f, sheetName, config, rowIndex, staffNames)
 			if err != nil {
 				return nil, err
 			}
-			if hasStaffNameChange(staffNames, updatedStaffNames) {
+			if changed {
 				staffNames = updatedStaffNames
 				expectStaffNames = false
 				continue
@@ -104,7 +104,7 @@ func ParseExcel(path string, config SourceConfig) ([]model.Shift, error) {
 		if err == nil {
 			currentYear = year
 			currentMonth = month
-			staffNames, err = updateStaffNamesFromRow(f, sheetName, config, rowIndex, staffNames)
+			staffNames, _, err = updateStaffNamesFromRow(f, sheetName, config, rowIndex, staffNames)
 			if err != nil {
 				return nil, err
 			}
@@ -160,14 +160,15 @@ func updateStaffNamesFromRow(
 	config SourceConfig,
 	rowIndex int,
 	currentStaffNames []string,
-) ([]string, error) {
+) ([]string, bool, error) {
 	updated := make([]string, len(currentStaffNames))
 	copy(updated, currentStaffNames)
 
+	hasStaffName := false
 	for i, block := range config.StaffBlocks {
 		name, err := getCellValue(f, sheetName, block.NameCol, rowIndex)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 
 		name = strings.TrimSpace(name)
@@ -175,10 +176,11 @@ func updateStaffNamesFromRow(
 			continue
 		}
 
+		hasStaffName = true
 		updated[i] = name
 	}
 
-	return updated, nil
+	return updated, hasStaffName && hasStaffNameChange(currentStaffNames, updated), nil
 }
 
 func hasStaffNameChange(currentStaffNames []string, updatedStaffNames []string) bool {
